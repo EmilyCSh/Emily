@@ -38,6 +38,7 @@ This is a private IPA signing service, it is not under credential protection as 
   const progressContainer = document.getElementById('progressContainer');
   const progressFill = document.getElementById('progressFill');
   const progressPercent = document.getElementById('progressPercent');
+  const ipaFile = document.getElementById("ipaFile");
         
   let currentProgress = 0;
   let targetProgress = 0;
@@ -46,73 +47,71 @@ This is a private IPA signing service, it is not under credential protection as 
   const isAppleDevice = () => {
     return /iPhone|iPad|iPod|AppleWatch|Vision/i.test(navigator.userAgent);
   };
+
+  const onerrorEvent = (event) => {
+    console.log('Network error occurred');
+    loader.style.display = 'none';
+    progressContainer.style.display = 'none';
+    messageDiv.classList.add('error');
+    messageDiv.innerHTML = `A network error occurred. Please try again later. (${event.type})`;
+    messageDiv.style.display = 'block';
+  }
         
-  document.getElementById("ipaFile").addEventListener("change", function(event) {
+  ipaFile.onchange = (event) => {
     if (event.target.files.length > 0) {
       document.getElementById("ipaFileLabel").textContent = event.target.files[0].name;
     }
-  });
+  };
+  progressContainer.style.display = 'none';
         
-  form.addEventListener('submit', function (e) {
-    if(xhr !== undefined) xhr.abort();  
+  form.onsubmit = (e) => {
+    if(xhr !== undefined) xhr.abort(); // if there is a xhr already started, abort it and start a new one
     e.preventDefault();
-    messageDiv.style.display = 'none';
     loader.style.display = 'block';
     progressContainer.style.display = 'none';
     progressFill.style.width = '0%';
     progressPercent.textContent = '0%';
-    messageDiv.innerHTML = '';
     currentProgress = 0;
     targetProgress = 0;
-            
+
     const formData = new FormData(form);
     xhr = new XMLHttpRequest();
             
-    xhr.open('POST', 'https://iosign.emy.sh/sign', true);
-            
-    xhr.upload.addEventListener('progress', (event) => {
+    xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         targetProgress = Math.round((event.loaded / event.total) * 100);
         animateProgress();
       } else {
         console.log('Progress not computable');
       }
-    });
+    };
 
-    xhr.upload.addEventListener("timeout", () => {
-      console.log('Timeout occurred');
-      loader.style.display = 'none';
-      progressContainer.style.display = 'none';
-      messageDiv.classList.add('error');
-      messageDiv.textContent = 'Timeout occurred. Please try again later.';
-      messageDiv.style.display = 'block';
-    });
-
-    xhr.upload.addEventListener("loadstart", () => {
+    xhr.upload.onloadstart = () => {
       progressContainer.style.display = 'block';
-    });
+    };
 
-    xhr.upload.addEventListener("load", () => {
+    xhr.upload.onload = () => {
       progressContainer.style.display = 'none';
       messageDiv.classList.remove('error', 'success');
       messageDiv.classList.add('success');
-      messageDiv.innerHTML = `
-          <strong>IPA signing is in progress. Please wait...</strong>
+      messageDiv.innerhtml = `
+          <strong>ipa signing is in progress. please wait...</strong>
         `;
       messageDiv.style.display = 'block';
 
       targetProgress = 100;
       animateProgress();
-    })
+    };
             
-    xhr.onreadystatechange = function () {
+    xhr.onreadystatechange = () => {
       if (xhr.readyState === XMLHttpRequest.DONE) {
         console.log('Upload completed');
         loader.style.display = 'none';
         progressContainer.style.display = 'none';
         
         if (xhr.status === 200) {
-          const result = JSON.parse(xhr.responseText);
+          const result = JSON.parse(xhr.responseText);        
+          messageDiv.classList.remove('error', 'success');
           messageDiv.classList.add('success');
 
           messageDiv.innerHTML = `
@@ -150,26 +149,27 @@ This is a private IPA signing service, it is not under credential protection as 
           messageDiv.style.display = 'block';
         } else {
           const result = JSON.parse(xhr.responseText);
+          messageDiv.classList.remove('error', 'success');
           messageDiv.classList.add('error');
           messageDiv.textContent = result.message || 'An error occurred while processing your request.';
           messageDiv.style.display = 'block';
         }
       }
     };
-            
-    xhr.onerror = function () {
-      console.log('Network error occurred');
-      loader.style.display = 'none';
-      progressContainer.style.display = 'none';
-      messageDiv.classList.add('error');
-      messageDiv.textContent = 'A network error occurred. Please try again later.';
-      messageDiv.style.display = 'block';
-    };
+ 
+    xhr.onerror = onerrorEvent;
+    xhr.ontimeout = onerrorEvent;
+    xhr.onabort = () => {
+          messageDiv.textContent = "Previous upload aborted by user.";
+          messageDiv.style.display = 'block';
+      };
+
+    xhr.open('POST', "https://iosign.emy.sh/sign", true);
             
     xhr.send(formData);
-  });
+  };
         
-  function animateProgress() {
+  const animateProgress = () => {
     if (currentProgress < targetProgress) {
       currentProgress++;
       progressFill.style.width = `${currentProgress}%`;
