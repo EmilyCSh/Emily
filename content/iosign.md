@@ -41,6 +41,7 @@ This is a private IPA signing service, it is not under credential protection as 
         
   let currentProgress = 0;
   let targetProgress = 0;
+  let xhr;
         
   const isAppleDevice = () => {
     return /iPhone|iPad|iPod|AppleWatch|Vision/i.test(navigator.userAgent);
@@ -53,10 +54,11 @@ This is a private IPA signing service, it is not under credential protection as 
   });
         
   form.addEventListener('submit', function (e) {
+    if(xhr !== undefined) xhr.abort();  
     e.preventDefault();
     messageDiv.style.display = 'none';
     loader.style.display = 'block';
-    progressContainer.style.display = 'block';
+    progressContainer.style.display = 'none';
     progressFill.style.width = '0%';
     progressPercent.textContent = '0%';
     messageDiv.innerHTML = '';
@@ -64,28 +66,44 @@ This is a private IPA signing service, it is not under credential protection as 
     targetProgress = 0;
             
     const formData = new FormData(form);
-    const xhr = new XMLHttpRequest();
+    xhr = new XMLHttpRequest();
             
     xhr.open('POST', 'https://iosign.emy.sh/sign', true);
             
     xhr.upload.addEventListener('progress', (event) => {
       if (event.lengthComputable) {
-        if (event.loaded === event.total) {
-          progressContainer.style.display = 'none';
-          messageDiv.classList.remove('error', 'success');
-          messageDiv.classList.add('success');
-          messageDiv.innerHTML = `
-            <strong>IPA signing is in progress. Please wait...</strong>
-          `;
-          messageDiv.style.display = 'block';
-        } else {
-          targetProgress = Math.round((event.loaded / event.total) * 100);
-          animateProgress();
-        }
+        targetProgress = Math.round((event.loaded / event.total) * 100);
+        animateProgress();
       } else {
         console.log('Progress not computable');
       }
     });
+
+    xhr.upload.addEventListener("timeout", () => {
+      console.log('Timeout occurred');
+      loader.style.display = 'none';
+      progressContainer.style.display = 'none';
+      messageDiv.classList.add('error');
+      messageDiv.textContent = 'Timeout occurred. Please try again later.';
+      messageDiv.style.display = 'block';
+    });
+
+    xhr.upload.addEventListener("loadstart", () => {
+      progressContainer.style.display = 'block';
+    });
+
+    xhr.upload.addEventListener("load", () => {
+      progressContainer.style.display = 'none';
+      messageDiv.classList.remove('error', 'success');
+      messageDiv.classList.add('success');
+      messageDiv.innerHTML = `
+          <strong>IPA signing is in progress. Please wait...</strong>
+        `;
+      messageDiv.style.display = 'block';
+
+      targetProgress = 100;
+      animateProgress();
+    })
             
     xhr.onreadystatechange = function () {
       if (xhr.readyState === XMLHttpRequest.DONE) {
