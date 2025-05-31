@@ -71,6 +71,7 @@ This is a private IPA signing service, it is not under credential protection as 
     progressContainer.style.display = 'none';
     progressFill.style.width = '0%';
     progressPercent.textContent = '0%';
+    messageDiv.innerHTML = '';
     currentProgress = 0;
     targetProgress = 0;
 
@@ -94,7 +95,7 @@ This is a private IPA signing service, it is not under credential protection as 
       progressContainer.style.display = 'none';
       messageDiv.classList.remove('error', 'success');
       messageDiv.classList.add('success');
-      messageDiv.innerhtml = `
+      messageDiv.innerHTML = `
           <strong>ipa signing is in progress. please wait...</strong>
         `;
       messageDiv.style.display = 'block';
