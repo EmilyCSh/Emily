@@ -4,6 +4,8 @@ title: "Tax code calculator according to the Italian specification"
 
 This italian tax code calculator is totally offline and does not share your data with any server!
 
+<div id="saved-taxcodes-list"></div>
+
 <form id="form-cf"">
   <label for="firstName">First name:</label>
   <input type="text" id="firstName" required value="Sofia">
@@ -266,8 +268,98 @@ This italian tax code calculator is totally offline and does not share your data
     
     let taxCode = (lastNameCode + firstNameCode + birthData + municipalityCode).toUpperCase();
     taxCode = taxCode + calculateControlCharacter(taxCode);
-      
-    document.getElementById("cf-result").innerText = taxCode;
+    
+    let savedTaxCodes = getSavedTaxCodes();
+    
+    if (!savedTaxCodes.some(e => e.taxCode === taxCode)) {
+      document.getElementById("cf-result").innerHTML = `${taxCode} <button id="save-taxcode-button" class="text-button">(save)</button>`;
+    } else {
+      document.getElementById("cf-result").innerHTML = `${taxCode} <button id="save-taxcode-button" class="text-button" disabled>(already saved)</button>`;
+    }
+    
+    document.getElementById("save-taxcode-button").addEventListener("click", function() {
+      const entry = {
+        taxCode: taxCode,
+        firstName: firstName,
+        lastName: lastName,
+        birthDate: birthDate
+      };
+        
+      savedTaxCodes.push(entry);
+      setSavedTaxCodes(savedTaxCodes);
+      document.getElementById("cf-result").innerHTML = `${taxCode} <button id="save-taxcode-button" class="text-button" disabled>(saved)</button>`;
+      displaySavedTaxCodes();
+    });
+  }
+  
+  function getSavedTaxCodes() {
+    const cookieValue = document.cookie
+      .split('; ')
+      .find(row => row.startsWith('savedTaxCodes='));
+    if (cookieValue) {
+      try {
+        return JSON.parse(decodeURIComponent(cookieValue.split('=')[1]));
+      } catch (e) {
+        return [];
+      }
+    } else {
+      return [];
+    }
+  }
+  
+  function setSavedTaxCodes(taxCodesArray) {
+    document.cookie = "savedTaxCodes=" + encodeURIComponent(JSON.stringify(taxCodesArray)) + "; path=/; max-age=" + (60 * 60 * 24 * 365 * 10);
+  }
+  
+  function deleteSavedTaxCode(taxCodeToDelete) {
+    let savedTaxCodes = getSavedTaxCodes();
+    savedTaxCodes = savedTaxCodes.filter(entry => entry.taxCode !== taxCodeToDelete);
+    setSavedTaxCodes(savedTaxCodes);
+    displaySavedTaxCodes();
+    calculateTaxCode();
+  }
+
+  function displaySavedTaxCodes() {
+    const savedTaxCodes = getSavedTaxCodes();
+
+    const container = document.getElementById("saved-taxcodes-list");
+
+    if (savedTaxCodes.length === 0) {
+      container.innerHTML = ""
+      return;
+    }
+
+    let html = `
+      <ul> 
+      Saved tax codes:
+    `;
+    
+    savedTaxCodes.forEach(entry => {
+      const date = new Date(entry.birthDate);
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+    
+      html += `
+        <li>
+          <strong>Tax code:</strong> ${entry.taxCode} <br>
+          <strong>First name:</strong> ${entry.firstName} <br>
+          <strong>Last name:</strong> ${entry.lastName} <br>
+          <strong>Birth date:</strong> ${day}/${month}/${year} <br>
+          <button data-delete-taxcode-button data-taxcode="${entry.taxCode}" id="delete-taxcode-button" class="text-button">Delete</button>
+        </li>
+      `;
+    });
+    html += "</ul>";
+
+    container.innerHTML = html;
+
+    document.querySelectorAll('[data-delete-taxcode-button]').forEach(button => {
+      button.addEventListener("click", function() {
+        const taxCodeToDelete = this.getAttribute("data-taxcode");
+        deleteSavedTaxCode(taxCodeToDelete);
+      });
+    });
   }
   
   const inputs = document.querySelectorAll("#form-cf input");
@@ -313,5 +405,7 @@ This italian tax code calculator is totally offline and does not share your data
     
     municipalityCode.addEventListener("input", clearOnFirstInput);
     municipalityCode.addEventListener("blur", resetListener);
+    
+    displaySavedTaxCodes();
   });
 </script>
