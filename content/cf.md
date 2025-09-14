@@ -327,8 +327,7 @@ This italian tax code calculator is totally offline and does not share your data
       const entry = {
         taxCode: taxCode,
         firstName: firstName,
-        lastName: lastName,
-        birthDate: birthDate
+        lastName: lastName
       };
         
       savedTaxCodes.push(entry);
@@ -338,10 +337,33 @@ This italian tax code calculator is totally offline and does not share your data
     });
   }
   
+  function decodeDateSexFromCode(code) {
+    const year = parseInt(code.slice(0, 2), 10);
+    const now = new Date();
+    const pivot = now.getFullYear() % 100;
+    const fullYear = year <= pivot ? 2000 + year : 1900 + year;
+
+    const months = "ABCDEHLMPRST";
+    const monthLetter = code[2];
+    const month = months.indexOf(monthLetter);
+    if (month === -1) {
+      return null;
+    }
+
+    const daysex = parseInt(code.slice(3), 10);
+    const sex = daysex > 40 ? "F" : "M";
+    const day = sex === "F" ? daysex - 40 : daysex;
+    
+    return {
+      date: new Date(fullYear, month, day),
+      sex: sex
+    };
+  }
+  
   function getSavedTaxCodesEncoded() {
     const cookieValue = document.cookie
       .split('; ')
-      .find(row => row.startsWith('savedTaxCodes='));
+      .find(row => row.startsWith('savedTaxCodes_v2='));
       
       if (cookieValue) {
         return cookieValue.split('=')[1];
@@ -351,25 +373,35 @@ This italian tax code calculator is totally offline and does not share your data
   }
   
   function getSavedTaxCodes() {
-    const taxCodesEncodedJson = getSavedTaxCodesEncoded();
-  
-    if (taxCodesEncodedJson) {
-      try {
-        return JSON.parse(decodeURIComponent(taxCodesEncodedJson));
-      } catch (e) {
-        return [];
-      }
-    } else {
+    const taxCodesEncoded = getSavedTaxCodesEncoded();
+    
+    if (!taxCodesEncoded) {
       return [];
     }
+    
+    const decoded = decodeURIComponent(taxCodesEncoded);
+    const decoded_split = decoded.split(",");
+    const entries = [];
+    
+    for (let i = 0; i < decoded_split.length; i += 3) {
+      const chunk = decoded_split.slice(i, i + 3); 
+      
+      entries.push({
+        taxCode: chunk[0],
+        firstName: chunk[1],
+        lastName: chunk[2],
+      });
+    }
+    
+    return entries;
   }
   
   function setSavedTaxCodesEncoded(taxCodesEncodedJson) {
-    document.cookie = "savedTaxCodes=" + taxCodesEncodedJson + "; path=/; max-age=" + (60 * 60 * 24 * 365 * 10);
+    document.cookie = "savedTaxCodes_v2=" + taxCodesEncodedJson + "; path=/; max-age=" + (60 * 60 * 24 * 365 * 10);
   }
   
   function setSavedTaxCodes(taxCodesArray) {
-    setSavedTaxCodesEncoded(encodeURIComponent(JSON.stringify(taxCodesArray)));
+    setSavedTaxCodesEncoded(encodeURIComponent(taxCodesArray.map(obj => Object.values(obj).join(","))));
   }
   
   function getExportTaxCodes() {
@@ -396,15 +428,6 @@ This italian tax code calculator is totally offline and does not share your data
   
   function setImportTaxCodes(importTaxCodes) {
     const taxCodesEncodedJson = atob(importTaxCodes);
-      
-    // Check
-    const decoded = decodeURIComponent(taxCodesEncodedJson);
-    const parsed = JSON.parse(decoded);
-      
-    if (!Array.isArray(parsed)) {
-      throw new Error("Not valid array");
-    }
-      
     setSavedTaxCodesEncoded(taxCodesEncodedJson);
   }
   
@@ -414,6 +437,66 @@ This italian tax code calculator is totally offline and does not share your data
     setSavedTaxCodes(savedTaxCodes);
     displaySavedTaxCodes();
     calculateTaxCode();
+  }
+  
+  function convertSavedTaxCodeV1toV2() {
+    function getSavedTaxCodesEncodedV1() {
+      const cookieValue = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('savedTaxCodes='));
+      
+        if (cookieValue) {
+          return cookieValue.split('=')[1];
+        } else {
+          return null;
+        }
+    }
+  
+    function getSavedTaxCodesV1() {
+      const taxCodesEncodedJson = getSavedTaxCodesEncodedV1();
+  
+      if (taxCodesEncodedJson) {
+        try {
+          return JSON.parse(decodeURIComponent(taxCodesEncodedJson));
+        } catch (e) {
+          return [];
+        }
+      } else {
+        return [];
+      }
+    }
+    
+    const savedTaxCodesV1 = getSavedTaxCodesV1();
+    
+    if (savedTaxCodesV1.length === 0) {
+      return;
+    }
+    
+    const newEntriesV2 = [];
+    
+    savedTaxCodesV1.forEach(entryV1 => {
+      newEntriesV2.push({
+        taxCode: entryV1.taxCode,
+        firstName: entryV1.firstName,
+        lastName: entryV1.lastName,
+      });
+    });
+    
+    const savedTaxCodesV2 = getSavedTaxCodes();
+    
+    const merged = [
+      ...savedTaxCodesV2,
+      ...newEntriesV2.filter(e =>
+        !savedTaxCodesV2.some(s => 
+          s.taxCode === e.taxCode &&
+          s.firstName === e.firstName &&
+          s.lastName === e.lastName
+        )
+      )
+    ];
+    
+    setSavedTaxCodes(merged);
+    document.cookie = "savedTaxCodes=; path=/; max-age=0";
   }
 
   function displaySavedTaxCodes() {
@@ -429,17 +512,19 @@ This italian tax code calculator is totally offline and does not share your data
     let html = ``;
     
     savedTaxCodes.forEach(entry => {
-      const date = new Date(entry.birthDate);
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
+      const datesex = decodeDateSexFromCode(entry.taxCode.substring(6, 11));
+      const formatted_date = new Intl.DateTimeFormat("it-IT", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric"
+      }).format(datesex.date);
     
       html += `
         <li>
           <strong>Tax code:</strong> ${entry.taxCode} <br>
           <strong>First name:</strong> ${entry.firstName} <br>
           <strong>Last name:</strong> ${entry.lastName} <br>
-          <strong>Birth date:</strong> ${day}/${month}/${year} <br>
+          <strong>Birth date:</strong> ${formatted_date} <br>
           <button data-delete-taxcode-button data-taxcode="${entry.taxCode}" id="delete-taxcode-button" class="text-button">Delete</button>
         </li>
       `;
@@ -509,6 +594,7 @@ This italian tax code calculator is totally offline and does not share your data
       }
     }
     
+    convertSavedTaxCodeV1toV2();
     displaySavedTaxCodes();
   });
   
