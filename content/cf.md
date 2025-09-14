@@ -4,7 +4,42 @@ title: "Tax code calculator according to the Italian specification"
 
 This italian tax code calculator is totally offline and does not share your data with any server!
 
-<div id="saved-taxcodes-list"></div>
+<ul id="saved-taxcodes" style="display: none;"> 
+  Saved tax codes <button id="export-taxcode-button" class="text-button">(export)</button>:
+  
+  <div id="saved-taxcodes-list"></div>
+ 
+  <dialog id="export-taxcode-dialog" style="max-width: 400px; padding: 1em;">
+    <button id="export-taxcode-close" class="text-button" style="float: right;">Close</button>
+    <h3>Scan the QR code or copy the link</h3>
+    <div id="export-taxcode-qr"></div>
+    </br>
+    <button id="export-taxcode-link" class="text-button" style="white-space: normal; word-break: break-all; text-align: left;"></button>
+  </dialog>
+</ul>
+
+<dialog id="import-taxcode-dialog" style="max-width: 400px; padding: 1em;">
+  <strong 
+    style="display: block; text-align: center; white-space: normal; word-wrap: break-word;">
+    You are importing tax codes from another device, those currently saved (if any) on this device will be OVERWRITTEN
+  </strong>
+  <br>
+  
+  <strong 
+    style="display: block; text-align: center; white-space: normal; word-wrap: break-word;">
+    Do you really want to proceed?
+  </strong>
+  <br>
+  
+  <button id="import-taxcode-no" class="text-button"
+    style="display: block; margin: 0.5em auto;">
+    No
+  </button>
+  <button id="import-taxcode-yes" class="text-button"
+    style="display: block; margin: 0.5em auto; white-space: normal; word-break: break-word;">
+    Yes, please overwrite my tax codes with the ones to be imported
+  </button>
+</dialog>
 
 <form id="form-cf"">
   <label for="firstName">First name:</label>
@@ -31,7 +66,18 @@ This italian tax code calculator is totally offline and does not share your data
 <h3>Tax code:</h3>
 <p id="cf-result"></p>
 
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js"></script>
 <script>
+  const urlParams = new URLSearchParams(window.location.search);
+  const export_taxcode_dialog = document.getElementById('export-taxcode-dialog');
+  const export_taxcode_button = document.getElementById('export-taxcode-button');
+  const export_taxcode_close = document.getElementById('export-taxcode-close');
+  const export_taxcode_qr = document.getElementById('export-taxcode-qr');
+  const export_taxcode_link = document.getElementById('export-taxcode-link');
+  const import_taxcode_dialog = document.getElementById('import-taxcode-dialog');
+  const import_taxcode_yes = document.getElementById('import-taxcode-yes');
+  const import_taxcode_no = document.getElementById('import-taxcode-no');
+    
   let selectedMunicipalityCode = "A001";
 
   let codiciCatastali = [];
@@ -292,13 +338,24 @@ This italian tax code calculator is totally offline and does not share your data
     });
   }
   
-  function getSavedTaxCodes() {
+  function getSavedTaxCodesEncoded() {
     const cookieValue = document.cookie
       .split('; ')
       .find(row => row.startsWith('savedTaxCodes='));
-    if (cookieValue) {
+      
+      if (cookieValue) {
+        return cookieValue.split('=')[1];
+      } else {
+        return null;
+      }
+  }
+  
+  function getSavedTaxCodes() {
+    const taxCodesEncodedJson = getSavedTaxCodesEncoded();
+  
+    if (taxCodesEncodedJson) {
       try {
-        return JSON.parse(decodeURIComponent(cookieValue.split('=')[1]));
+        return JSON.parse(decodeURIComponent(taxCodesEncodedJson));
       } catch (e) {
         return [];
       }
@@ -307,8 +364,48 @@ This italian tax code calculator is totally offline and does not share your data
     }
   }
   
+  function setSavedTaxCodesEncoded(taxCodesEncodedJson) {
+    document.cookie = "savedTaxCodes=" + taxCodesEncodedJson + "; path=/; max-age=" + (60 * 60 * 24 * 365 * 10);
+  }
+  
   function setSavedTaxCodes(taxCodesArray) {
-    document.cookie = "savedTaxCodes=" + encodeURIComponent(JSON.stringify(taxCodesArray)) + "; path=/; max-age=" + (60 * 60 * 24 * 365 * 10);
+    setSavedTaxCodesEncoded(encodeURIComponent(JSON.stringify(taxCodesArray)));
+  }
+  
+  function getExportTaxCodes() {
+    const taxCodesEncodedJson = getSavedTaxCodesEncoded();
+    
+    if (taxCodesEncodedJson) {
+      return btoa(taxCodesEncodedJson);
+    } else {
+      return null;
+    }
+  }
+  
+  function getExportTaxCodesUrl() {
+    const exportTaxCodes = getExportTaxCodes();
+    const url = new URL(window.location.href);
+    
+    if (exportTaxCodes) {
+      url.searchParams.set("import", exportTaxCodes);
+      return url.toString();
+    } else {
+      return null;
+    }    
+  }
+  
+  function setImportTaxCodes(importTaxCodes) {
+    const taxCodesEncodedJson = atob(importTaxCodes);
+      
+    // Check
+    const decoded = decodeURIComponent(taxCodesEncodedJson);
+    const parsed = JSON.parse(decoded);
+      
+    if (!Array.isArray(parsed)) {
+      throw new Error("Not valid array");
+    }
+      
+    setSavedTaxCodesEncoded(taxCodesEncodedJson);
   }
   
   function deleteSavedTaxCode(taxCodeToDelete) {
@@ -322,17 +419,14 @@ This italian tax code calculator is totally offline and does not share your data
   function displaySavedTaxCodes() {
     const savedTaxCodes = getSavedTaxCodes();
 
-    const container = document.getElementById("saved-taxcodes-list");
-
     if (savedTaxCodes.length === 0) {
-      container.innerHTML = ""
+      document.getElementById("saved-taxcodes").style.display = "none";
       return;
     }
+    
+    const saved_taxcodes_list_html = document.getElementById("saved-taxcodes-list");
 
-    let html = `
-      <ul> 
-      Saved tax codes:
-    `;
+    let html = ``;
     
     savedTaxCodes.forEach(entry => {
       const date = new Date(entry.birthDate);
@@ -352,7 +446,8 @@ This italian tax code calculator is totally offline and does not share your data
     });
     html += "</ul>";
 
-    container.innerHTML = html;
+    saved_taxcodes_list_html.innerHTML = html;
+    document.getElementById("saved-taxcodes").style.display = "block";
 
     document.querySelectorAll('[data-delete-taxcode-button]').forEach(button => {
       button.addEventListener("click", function() {
@@ -406,6 +501,88 @@ This italian tax code calculator is totally offline and does not share your data
     municipalityCode.addEventListener("input", clearOnFirstInput);
     municipalityCode.addEventListener("blur", resetListener);
     
+    if (urlParams.has("import")) {
+      if (typeof import_taxcode_dialog.showModal === 'function') {
+        import_taxcode_dialog.showModal();
+      } else {
+        import_taxcode_dialog.setAttribute('open', 'open');
+      }
+    }
+    
     displaySavedTaxCodes();
+  });
+  
+  import_taxcode_no.addEventListener('click', () => {
+    import_taxcode_dialog.close();
+  });
+  
+  import_taxcode_yes.addEventListener('click', () => {
+    const importTaxCodes = urlParams.get("import");
+    setImportTaxCodes(importTaxCodes);
+    displaySavedTaxCodes();
+    import_taxcode_dialog.close();
+  });
+  
+  export_taxcode_button.addEventListener('click', () => {
+    const link = getExportTaxCodesUrl();
+    
+    if (!link) {
+      return;
+    }
+    
+    export_taxcode_link.textContent = link + ' (copy)'
+    
+    export_taxcode_qr.innerHTML = '';
+    new QRCode(export_taxcode_qr, {
+      text: link,
+      width: 200,
+      height: 200,
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  
+    if (typeof export_taxcode_dialog.showModal === 'function') {
+        export_taxcode_dialog.showModal();
+      } else {
+        export_taxcode_dialog.setAttribute('open', 'open');
+      }
+  });
+  
+  export_taxcode_link.addEventListener('click', async () => {
+    const link = getExportTaxCodesUrl();
+    
+    if (!link) {
+      return;
+    }
+    
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(link);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = link;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+      }
+      
+      export_taxcode_link.textContent = link + ' (copied)'
+      setTimeout(() => (export_taxcode_link.textContent = link + ' (copy)'), 1500);
+    } catch (e) {
+      console.log(e);
+    }
+  });
+  
+  export_taxcode_close.addEventListener('click', () => {
+    export_taxcode_dialog.close();
+  });
+  
+  export_taxcode_dialog.addEventListener('click', (e) => {
+    const rect = export_taxcode_dialog.getBoundingClientRect();
+    const inDialog = (
+      e.clientX >= rect.left && e.clientX <= rect.right &&
+      e.clientY >= rect.top  && e.clientY <= rect.bottom
+    );
+    if (!inDialog) export_taxcode_dialog.close();
   });
 </script>
