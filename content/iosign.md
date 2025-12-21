@@ -39,6 +39,10 @@ This is a private IPA signing service, it is not under credential protection as 
   const progressFill = document.getElementById('progressFill');
   const progressPercent = document.getElementById('progressPercent');
   const ipaFile = document.getElementById("ipaFile");
+  const CHUNK_SIZE = 50 * 1024 * 1024;
+
+  let isUploading = false;
+  let activeXhr = null;
         
   let currentProgress = 0;
   let targetProgress = 0;
@@ -48,134 +52,170 @@ This is a private IPA signing service, it is not under credential protection as 
     return /iPhone|iPad|iPod|AppleWatch|Vision/i.test(navigator.userAgent);
   };
 
-  const onerrorEvent = (event) => {
-    console.log('Network error occurred');
-    loader.style.display = 'none';
-    progressContainer.style.display = 'none';
-    messageDiv.classList.add('error');
-    messageDiv.innerHTML = `A network error occurred. Please try again later. (${event.type})`;
-    messageDiv.style.display = 'block';
-  }
-        
   ipaFile.onchange = (event) => {
     if (event.target.files.length > 0) {
       document.getElementById("ipaFileLabel").textContent = event.target.files[0].name;
     }
   };
-  progressContainer.style.display = 'none';
-        
-  form.onsubmit = (e) => {
-    if(xhr !== undefined) xhr.abort(); // if there is a xhr already started, abort it and start a new one
-    e.preventDefault();
-    loader.style.display = 'block';
+
+  const showError = (msg) => {
+    loader.style.display = 'none'; 
     progressContainer.style.display = 'none';
-    progressFill.style.width = '0%';
-    progressPercent.textContent = '0%';
-    messageDiv.innerHTML = '';
-    currentProgress = 0;
-    targetProgress = 0;
+    messageDiv.classList.remove('success');
+    messageDiv.classList.add('error');
+    messageDiv.innerHTML = msg;
+    messageDiv.style.display = 'block';
+    isUploading = false;
+  }; 
 
-    const formData = new FormData(form);
-    xhr = new XMLHttpRequest();
-            
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        targetProgress = Math.round((event.loaded / event.total) * 100);
-        animateProgress();
-      } else {
-        console.log('Progress not computable');
+  const updateProgress = (percent) => {
+    progressFill.style.width = `${percent}%`;
+    progressPercent.textContent = `${Math.round(percent)}%`;
+  }; 
+
+  const sendRequest = (endpoint, formData, onProgress = null) => { 
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      activeXhr = xhr;
+
+      if (onProgress) {
+        xhr.upload.onprogress = onProgress;
       }
-    };
 
-    xhr.upload.onloadstart = () => {
-      progressContainer.style.display = 'block';
-    };
+      xhr.open('POST', endpoint, true);
 
-    xhr.upload.onload = () => {
-      progressContainer.style.display = 'none';
-      messageDiv.classList.remove('error', 'success');
-      messageDiv.classList.add('success');
-      messageDiv.innerHTML = `
-          <strong>ipa signing is in progress. please wait...</strong>
-        `;
-      messageDiv.style.display = 'block';
-
-      targetProgress = 100;
-      animateProgress();
-    };
-            
-    xhr.onreadystatechange = () => {
-      if (xhr.readyState === XMLHttpRequest.DONE) {
-        console.log('Upload completed');
-        loader.style.display = 'none';
-        progressContainer.style.display = 'none';
-        
-        if (xhr.status === 200) {
-          const result = JSON.parse(xhr.responseText);        
-          messageDiv.classList.remove('error', 'success');
-          messageDiv.classList.add('success');
-
-          messageDiv.innerHTML = `
-            <strong>${result.message}</strong>
-            <div class="links">
-              <a href="${result.ipa_url}" target="_blank">Download Signed IPA</a>
-              <br>
-              <a href="${result.ota_url}" target="_blank">Download OTA Plist</a>
-            </div>
-            <br>
-          `;
-          
-          if (isAppleDevice()) {
-            messageDiv.innerHTML += `
-              <a href="${result.install_url}" class="install-button">Install on Device</a>
-            `;
-          } else {
-            var qrSize = Math.floor(window.innerWidth * 0.15);
-            messageDiv.innerHTML += `
-              <strong>Scan this QR code with the iOS Camera app to install the IPA</strong>
-              <br><br>
-              <div id="qrCode" style="width: ${qrSize}px; height: ${qrSize}px;"></div>
-            `;
-            
-            new QRCode(document.getElementById("qrCode"), {
-              text: result.install_url,
-              width: qrSize,
-              height: qrSize,
-              colorDark: "#000000",
-              colorLight: "#ffffff",
-              correctLevel: QRCode.CorrectLevel.M
-            });
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const response = JSON.parse(xhr.responseText);
+            resolve(response);
+          } catch (e) {
+            reject("Invalid JSON response from server");
           }
-          
-          messageDiv.style.display = 'block';
         } else {
-          const result = JSON.parse(xhr.responseText);
-          messageDiv.classList.remove('error', 'success');
-          messageDiv.classList.add('error');
-          messageDiv.textContent = result.message || 'An error occurred while processing your request.';
-          messageDiv.style.display = 'block';
+          try {
+            const err = JSON.parse(xhr.responseText);
+            reject(err.message || `Server Error: ${xhr.status}`);
+          } catch (e) {
+            reject(`Server Error: ${xhr.status}`);
+          }
         }
-      }
-    };
- 
-    xhr.onerror = onerrorEvent;
-    xhr.ontimeout = onerrorEvent;
-    xhr.onabort = () => {
-          messageDiv.textContent = "Previous upload aborted by user.";
-          messageDiv.style.display = 'block';
       };
 
-    xhr.open('POST', "https://iosign.emy.sh/sign", true);
-            
-    xhr.send(formData);
-  };
+      xhr.onerror = () => reject("Network Error");
+      xhr.onabort = () => reject("Aborted by user");
+
+      xhr.send(formData);
+    });
+  }; 
         
-  const animateProgress = () => {
-    if (currentProgress < targetProgress) {
-      currentProgress++;
-      progressFill.style.width = `${currentProgress}%`;
-      progressPercent.textContent = `${currentProgress}%`;
-      requestAnimationFrame(animateProgress);
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    if (isUploading) return;
+
+    const fileInput = document.getElementById('ipaFile');
+    const udidInput = document.getElementById('udid');
+    const file = fileInput.files[0];
+    const udid = udidInput.value.trim();
+
+    if (!file) return showError("Please select a file.");
+    if (!udid) return showError("Please enter UDID.");
+
+    isUploading = true;
+    loader.style.display = 'block';
+    progressContainer.style.display = 'block';
+    messageDiv.style.display = 'none';
+    updateProgress(0);
+
+    try {
+      console.log("Starting Upload Init...");
+      const initData = new FormData();
+      initData.append('udid', udid);
+      
+      const initResponse = await sendRequest('https://iosign.emy.sh/upload/init', initData);
+      const uploadId = initResponse.upload_id;
+      
+      if (!uploadId) throw "No upload ID received.";
+
+      const totalSize = file.size;
+      const totalChunks = Math.ceil(totalSize / CHUNK_SIZE);
+      let chunkIndex = 0;
+      let start = 0;
+
+      while (start < totalSize) {
+        const end = Math.min(start + CHUNK_SIZE, totalSize);
+        const chunk = file.slice(start, end);
+        
+        const chunkData = new FormData();
+        chunkData.append('upload_id', uploadId);
+        chunkData.append('chunk_index', chunkIndex);
+        chunkData.append('file', chunk, "blob");
+
+        const onChunkProgress = (event) => {
+          if (event.lengthComputable) {
+            const loadedGlobal = start + event.loaded;
+            const percent = (loadedGlobal / totalSize) * 100;
+            updateProgress(percent);
+          }
+        };
+
+        await sendRequest('https://iosign.emy.sh/upload/chunk', chunkData, onChunkProgress);
+        
+        start += CHUNK_SIZE;
+        chunkIndex++;
+      }
+
+      progressContainer.style.display = 'none';
+      messageDiv.classList.add('success');
+      messageDiv.innerHTML = `<strong>Upload complete. Signing IPA, please wait...</strong>`;
+      messageDiv.style.display = 'block';
+
+      const finishData = new FormData();
+      finishData.append('upload_id', uploadId);
+
+      const result = await sendRequest('https://iosign.emy.sh/upload/finish', finishData);
+
+      console.log("Signing Complete");
+      loader.style.display = 'none';
+      messageDiv.innerHTML = `
+        <strong>${result.message}</strong>
+        <div class="links">
+          <a href="${result.ipa_url}" target="_blank">Download Signed IPA</a>
+          <br>
+          <a href="${result.ota_url}" target="_blank">Download OTA Plist</a>
+        </div>
+        <br>
+      `;
+
+      if (isAppleDevice()) {
+        messageDiv.innerHTML += `
+          <a href="${result.install_url}" class="install-button">Install on Device</a>
+        `;
+      } else {
+        var qrSize = Math.floor(window.innerWidth * 0.15);
+        if (qrSize < 150) qrSize = 150; 
+        
+        messageDiv.innerHTML += `
+          <strong>Scan this QR code with the iOS Camera app to install the IPA</strong>
+          <br><br>
+          <div id="qrCode" style="width: ${qrSize}px; height: ${qrSize}px; margin: 0 auto;"></div>
+        `;
+        
+        new QRCode(document.getElementById("qrCode"), {
+          text: result.install_url,
+          width: qrSize,
+          height: qrSize,
+          colorDark: "#000000",
+          colorLight: "#ffffff",
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      }
+
+    } catch (error) {
+      showError(error);
+    } finally {
+      isUploading = false;
+      activeXhr = null;
     }
-  }
+  };
 </script>
