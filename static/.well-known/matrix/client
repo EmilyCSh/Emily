@@ -1,0 +1,15 @@
+{
+  "m.homeserver": {
+    "base_url": "https://matrix-synapse.emy.sh"
+  },
+  "org.matrix.msc2965.authentication": {
+    "account": "https://matrix-mas.emy.sh/account",
+    "issuer": "https://matrix-mas.emy.sh/"
+  },
+  "org.matrix.msc4143.rtc_foci": [
+    {
+      "type": "livekit",
+      "livekit_service_url": "https://matrix-rtc.emy.sh"
+    }
+  ]
+}
